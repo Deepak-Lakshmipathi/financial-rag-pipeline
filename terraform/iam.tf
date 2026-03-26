@@ -58,17 +58,6 @@ resource "aws_iam_policy" "lambda_permissions" {
           "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/prog1-finrag-ingestion-lambda:*"
         ]
       },
-      # Add this statement to your existing aws_iam_policy resource
-      {
-        Sid    = "DynamoDBJobTracking"
-        Effect = "Allow"
-        Action = [
-          "dynamodb:PutItem", 
-          "dynamodb:GetItem", 
-          "dynamodb:UpdateItem"
-        ]
-        Resource = aws_dynamodb_table.textract_jobs.arn
-      }
     ]
   })
 }

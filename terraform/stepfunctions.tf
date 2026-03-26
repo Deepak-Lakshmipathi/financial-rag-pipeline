@@ -36,7 +36,7 @@ resource "aws_sfn_state_machine" "ingestion_pipeline" {
         Type     = "Task"
         Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
-          FunctionName = aws_lambda_function.textract_complete.arn
+          FunctionName = aws_lambda_function.ingestion.arn
           "Payload.$"  = "$"
         }
         ResultPath = "$.extractResult"
@@ -87,7 +87,6 @@ resource "aws_iam_role_policy" "sfn_execution_policy" {
         Action   = "lambda:InvokeFunction"
         Resource = [
           aws_lambda_function.ingestion.arn,
-          aws_lambda_function.textract_complete.arn,
         ]
       },
       {
