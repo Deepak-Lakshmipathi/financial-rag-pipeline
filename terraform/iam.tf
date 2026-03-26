@@ -31,6 +31,12 @@ resource "aws_iam_policy" "textract_submitter_policy" {
         Resource = "*"
       },
       {
+        Sid    = "S3ReadRaw"
+        Effect = "Allow"
+        Action = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.financial_docs.arn}/raw/*"
+      },
+      {
         Sid    = "PassTextractRole"
         Effect = "Allow"
         Action = "iam:PassRole"

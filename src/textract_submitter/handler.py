@@ -1,5 +1,6 @@
 import json
 import os
+import urllib.parse
 import boto3
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
@@ -18,7 +19,7 @@ def handler(event: dict, context: LambdaContext) -> dict:
 
     for record in event["Records"]:
         bucket = record["s3"]["bucket"]["name"]
-        key    = record["s3"]["object"]["key"]
+        key    = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
         size   = record["s3"]["object"]["size"]
 
         logger.info("Submitting document to Textract", extra={"bucket": bucket, "key": key, "size_bytes": size})
