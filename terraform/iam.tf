@@ -19,10 +19,13 @@ resource "aws_iam_policy" "lambda_permissions" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "S3ReadRaw"
-        Effect   = "Allow"
-        Action   = ["s3:GetObject"]
-        Resource = "${aws_s3_bucket.financial_docs.arn}/raw/*"
+        Sid    = "S3ReadRaw"
+        Effect = "Allow"
+        Action = ["s3:GetObject"]
+        Resource = [
+          "${aws_s3_bucket.financial_docs.arn}/raw/*",
+          "${aws_s3_bucket.financial_docs.arn}/task-tokens/*",
+        ]
       },
       {
         Sid    = "S3WriteProcessed"
@@ -30,7 +33,8 @@ resource "aws_iam_policy" "lambda_permissions" {
         Action = ["s3:PutObject"]
         Resource = [
           "${aws_s3_bucket.financial_docs.arn}/processed/*",
-          "${aws_s3_bucket.financial_docs.arn}/chunks/*"
+          "${aws_s3_bucket.financial_docs.arn}/chunks/*",
+          "${aws_s3_bucket.financial_docs.arn}/task-tokens/*",
         ]
       },
       {
@@ -46,10 +50,17 @@ resource "aws_iam_policy" "lambda_permissions" {
         Resource = "*"
       },
       {
-        Sid      = "StepFunctionsStart"
-        Effect   = "Allow"
-        Action   = ["states:StartExecution"]
+        Sid    = "StepFunctionsStart"
+        Effect = "Allow"
+        Action = ["states:StartExecution"]
         Resource = aws_sfn_state_machine.ingestion_pipeline.arn
+      },
+      {
+        Sid    = "StepFunctionsTaskCallback"
+        Effect = "Allow"
+        Action = ["states:SendTaskSuccess", "states:SendTaskFailure"]
+        # Task tokens are not scoped to a specific ARN; * is required.
+        Resource = "*"
       },
       {
         Sid    = "CloudWatchLogs"

@@ -27,10 +27,24 @@ resource "aws_sfn_state_machine" "ingestion_pipeline" {
         }]
       }
       WaitForCompletion = {
-        Type    = "Wait"
-        Seconds = 30
-        Next    = "CheckTextractStatus"
-        Comment = "Suspend execution — SNS will notify when Textract completes"
+        Type     = "Task"
+        Resource = "arn:aws:states:::lambda:invoke.waitForTaskToken"
+        Comment  = "Pause until SNS delivers Textract completion — Lambda stores token keyed by job_id"
+        Parameters = {
+          FunctionName = aws_lambda_function.ingestion.arn
+          Payload = {
+            "action"           = "store_task_token"
+            "TaskToken.$"      = "$$.Task.Token"
+            "job_id.$"         = "$.textractResult.Payload.job_id"
+          }
+        }
+        ResultPath     = "$.waitResult"
+        TimeoutSeconds = 900
+        Next           = "CheckTextractStatus"
+        Catch = [{
+          ErrorEquals = ["States.TaskFailed", "States.Timeout"]
+          Next        = "IngestionFailed"
+        }]
       }
       CheckTextractStatus = {
         Type     = "Task"
