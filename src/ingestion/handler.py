@@ -21,6 +21,7 @@ TEXTRACT_ROLE_ARN = os.environ["TEXTRACT_ROLE_ARN"]
 
 def _handle_s3_event(event: dict, context: LambdaContext) -> dict:
     """Triggered by an S3 PUT — starts a Step Functions execution per object."""
+    logger.info(f"##### Started _handle_s3_event #####")
     executions_started = []
 
     for record in event["Records"]:
@@ -41,26 +42,52 @@ def _handle_s3_event(event: dict, context: LambdaContext) -> dict:
     return {"statusCode": 200, "body": json.dumps({"executions_started": executions_started})}
 
 
-def _handle_sns_event(event: dict) -> dict:
-    """Triggered via SNS — routes to the correct action using the 'action' field"""
+def _handle_sns_event(event: dict) -> str:
+    logger.info(f"##### Started _handle_sns_event #####")
+    """Triggered via SNS — routes to the correct action.
+    Textract completion notifications carry no 'action' field, so default to 'textract_complete'."""
     sns_message = json.loads(event["Records"][0]["Sns"]["Message"])
-    action      = sns_message.get("action")
+    return sns_message.get("action", "")
 
-    return action
+
+def _store_task_token(payload: dict, _context: LambdaContext) -> dict:
+    """Store the Step Functions task token keyed by Textract job_id.
+    Called by the WaitForCompletion .waitForTaskToken state so that
+    _textract_complete can look up the token when SNS fires."""
+    job_id     = payload["job_id"]
+    task_token = payload["TaskToken"]
+
+    s3_client.put_object(
+        Bucket=OUTPUT_BUCKET,
+        Key=f"task-tokens/{job_id}.json",
+        Body=json.dumps({"task_token": task_token}).encode("utf-8"),
+    )
+    logger.info("Task token stored", extra={"job_id": job_id})
+    return {"stored": True}
 
 
 def _textract_complete(event: dict, context: LambdaContext) -> dict:
-    """Fetch completed Textract results and persist extracted text to S3.
-    Invoked either from SNS (via _handle_sns_event) or directly from Step Functions."""
+    logger.info(f"##### Started _textract_complete #####")
+    """Invoked via SNS when Textract finishes. Fetches results, saves text to S3,
+    then calls send_task_success / send_task_failure to resume the paused SFN execution."""
     sns_message = json.loads(event["Records"][0]["Sns"]["Message"])
     job_id      = sns_message["JobId"]
     job_status  = sns_message["Status"]
 
     logger.info("Textract job notification received", extra={"job_id": job_id, "status": job_status})
 
+    # Retrieve the task token stored by _store_task_token
+    token_obj  = s3_client.get_object(Bucket=OUTPUT_BUCKET, Key=f"task-tokens/{job_id}.json")
+    task_token = json.loads(token_obj["Body"].read())["task_token"]
+
     if job_status == "FAILED":
         logger.error("Textract job failed", extra={"job_id": job_id})
-        raise Exception(f"Textract job {job_id} failed — Step Functions will route to error branch")
+        sfn_client.send_task_failure(
+            taskToken=task_token,
+            error="TextractFailed",
+            cause=f"Textract job {job_id} failed",
+        )
+        return {"statusCode": 200, "body": json.dumps({"job_id": job_id, "status": "FAILED"})}
 
     # SUCCEEDED — paginate through all result pages
     lines, next_token = [], None
@@ -75,13 +102,15 @@ def _textract_complete(event: dict, context: LambdaContext) -> dict:
             break
 
     raw_text   = "\n".join(lines)
-    # Derive output key from the job_id (Step Functions will pass bucket/key via task token in a later iteration)
     output_key = f"processed/{job_id}.txt"
 
     s3_client.put_object(Bucket=OUTPUT_BUCKET, Key=output_key, Body=raw_text.encode("utf-8"))
     logger.info("Text extracted and saved", extra={"job_id": job_id, "output_key": output_key, "line_count": len(lines)})
 
-    return {"statusCode": 200, "body": json.dumps({"output_key": output_key, "line_count": len(lines)})}
+    result = {"output_key": output_key, "line_count": len(lines)}
+    sfn_client.send_task_success(taskToken=task_token, output=json.dumps(result))
+
+    return {"statusCode": 200, "body": json.dumps(result)}
 
 def _textract_start(payload: dict, _context: LambdaContext) -> dict:
     """Submit an S3 document to Textract for async text detection.
@@ -104,7 +133,9 @@ def _textract_start(payload: dict, _context: LambdaContext) -> dict:
     job_id = response["JobId"]
     logger.info("Textract job submitted", extra={"job_id": job_id, "bucket": bucket, "key": key})
 
-    return {"statusCode": 200, "body": json.dumps({"job_id": job_id})}
+    # Return job_id at the top level so Step Functions can reference it as
+    # $.textractResult.Payload.job_id in the WaitForCompletion state.
+    return {"job_id": job_id}
 
 # ---------------------------------------------------------------------------
 # Step Functions dispatch table
@@ -113,6 +144,7 @@ def _textract_start(payload: dict, _context: LambdaContext) -> dict:
 # ---------------------------------------------------------------------------
 _SFN_DISPATCH: dict = {
     "textract_start":    _textract_start,
+    "store_task_token":  _store_task_token,
     "textract_complete": _textract_complete,
     # "chunk_text":        _chunk_text,
     # "embed_chunks":      _embed_chunks,
@@ -125,7 +157,7 @@ _SFN_DISPATCH: dict = {
 
 @logger.inject_lambda_context(log_event=False)
 def handler(event: dict, context: LambdaContext) -> dict:
-    logger.info("EVENT : ||{event}||")
+    logger.info(f"EVENT : ||{event}||")
     records      = event.get("Records", [])
     event_source = ""
     action       = event.get("action", "")
@@ -142,6 +174,9 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # --- SNS trigger ---
     if event_source == "aws:sns":
         action = _handle_sns_event(event)
+        # Textract completion notifications carry no "action" key — route directly.
+        if not action:
+            return _textract_complete(event, context)
 
     # --- Direct Step Functions invocation or SNS-routed action ---
     # Step Functions passes {"action": "<name>", ...payload...} as the task input.
