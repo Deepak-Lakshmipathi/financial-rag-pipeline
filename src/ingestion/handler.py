@@ -44,10 +44,10 @@ def _handle_s3_event(event: dict, context: LambdaContext) -> dict:
 
 def _handle_sns_event(event: dict) -> str:
     logger.info(f"##### Started _handle_sns_event #####")
-    """Triggered via SNS — routes to the correct action.
-    Textract completion notifications carry no 'action' field, so default to 'textract_complete'."""
+    """Triggered via SNS — returns the JobTag embedded in the Textract notification,
+    which doubles as the dispatch action (e.g. 'textract_complete')."""
     sns_message = json.loads(event["Records"][0]["Sns"]["Message"])
-    return sns_message.get("action", "")
+    return sns_message.get("JobTag", "")
 
 
 def _store_task_token(payload: dict, _context: LambdaContext) -> dict:
@@ -129,6 +129,7 @@ def _textract_start(payload: dict, _context: LambdaContext) -> dict:
             "SNSTopicArn": TEXTRACT_SNS_ARN,
             "RoleArn":     TEXTRACT_ROLE_ARN,
         },
+        JobTag="textract_complete",
     )
     job_id = response["JobId"]
     logger.info("Textract job submitted", extra={"job_id": job_id, "bucket": bucket, "key": key})
@@ -174,9 +175,6 @@ def handler(event: dict, context: LambdaContext) -> dict:
     # --- SNS trigger ---
     if event_source == "aws:sns":
         action = _handle_sns_event(event)
-        # Textract completion notifications carry no "action" key — route directly.
-        if not action:
-            return _textract_complete(event, context)
 
     # --- Direct Step Functions invocation or SNS-routed action ---
     # Step Functions passes {"action": "<name>", ...payload...} as the task input.

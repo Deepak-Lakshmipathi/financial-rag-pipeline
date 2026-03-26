@@ -1,76 +1,71 @@
-
-resource "aws_sfn_state_machine" "ingestion_pipeline" {
-  name     = "financial-rag-ingestion"
+resource "aws_sfn_state_machine" "pipeline" {
+  name     = "financial-rag-pipeline"
   role_arn = aws_iam_role.sfn_execution_role.arn
   type     = "STANDARD"
 
   tracing_configuration { enabled = true }
 
   definition = jsonencode({
-    Comment = "Financial RAG ingestion: Textract → Chunk → Embed → Index"
-    StartAt = "StartTextractJob"
+    Comment = "Financial RAG pipeline: extract → store → chunk → embed"
+    StartAt = "GetTextractResults"
     States = {
-      StartTextractJob = {
+
+      GetTextractResults = {
         Type     = "Task"
         Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
-          FunctionName = aws_lambda_function.ingestion.arn
-          "Payload.$"  = "$"
-        }
-        ResultPath = "$.textractResult"
-        Next       = "WaitForCompletion"
-        Retry = [{
-          ErrorEquals     = ["Lambda.ServiceException", "Lambda.AWSLambdaException"]
-          IntervalSeconds = 2
-          MaxAttempts     = 3
-          BackoffRate     = 2
-        }]
-      }
-      WaitForCompletion = {
-        Type     = "Task"
-        Resource = "arn:aws:states:::lambda:invoke.waitForTaskToken"
-        Comment  = "Pause until SNS delivers Textract completion — Lambda stores token keyed by job_id"
-        Parameters = {
-          FunctionName = aws_lambda_function.ingestion.arn
+          FunctionName = aws_lambda_function.pipeline.arn
           Payload = {
-            "action"           = "store_task_token"
-            "TaskToken.$"      = "$$.Task.Token"
-            "job_id.$"         = "$.textractResult.Payload.job_id"
+            "action"   = "get_textract_results"
+            "job_id.$" = "$.job_id"
           }
         }
-        ResultPath     = "$.waitResult"
-        TimeoutSeconds = 900
-        Next           = "CheckTextractStatus"
+        ResultPath = "$.textractOutput"
+        Next       = "StoreRawText"
         Catch = [{
-          ErrorEquals = ["States.TaskFailed", "States.Timeout"]
-          Next        = "IngestionFailed"
+          ErrorEquals = ["States.TaskFailed"]
+          Next        = "PipelineFailed"
         }]
       }
-      CheckTextractStatus = {
+
+      StoreRawText = {
         Type     = "Task"
         Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
-          FunctionName = aws_lambda_function.ingestion.arn
-          "Payload.$"  = "$"
+          FunctionName = aws_lambda_function.pipeline.arn
+          Payload = {
+            "action"           = "store_raw_text"
+            "job_id.$"         = "$.job_id"
+            "textractOutput.$" = "$.textractOutput"
+          }
         }
-        ResultPath = "$.extractResult"
+        ResultPath = "$.storeResult"
         Next       = "ChunkText"
         Catch = [{
           ErrorEquals = ["States.TaskFailed"]
-          Next        = "IngestionFailed"
+          Next        = "PipelineFailed"
         }]
       }
+
       ChunkText = {
         Type    = "Pass"
-        Comment = "Day 5 — LangChain chunking Lambda goes here"
+        Comment = "Placeholder — LangChain chunking Lambda goes here"
+        Next    = "EmbedChunks"
+      }
+
+      EmbedChunks = {
+        Type    = "Pass"
+        Comment = "Placeholder — vector embedding Lambda goes here"
         Next    = "PipelineComplete"
       }
+
       PipelineComplete = {
         Type = "Succeed"
       }
-      IngestionFailed = {
+
+      PipelineFailed = {
         Type  = "Fail"
-        Cause = "Textract job failed or Lambda error"
+        Cause = "Pipeline Lambda error"
       }
     }
   })
@@ -90,7 +85,7 @@ resource "aws_iam_role" "sfn_execution_role" {
 }
 
 resource "aws_iam_role_policy" "sfn_execution_policy" {
-  name = "sfn-invoke-lambdas"
+  name = "sfn-invoke-pipeline-lambda"
   role = aws_iam_role.sfn_execution_role.id
 
   policy = jsonencode({
@@ -99,9 +94,7 @@ resource "aws_iam_role_policy" "sfn_execution_policy" {
       {
         Effect   = "Allow"
         Action   = "lambda:InvokeFunction"
-        Resource = [
-          aws_lambda_function.ingestion.arn,
-        ]
+        Resource = aws_lambda_function.pipeline.arn
       },
       {
         Effect   = "Allow"
