@@ -46,6 +46,12 @@ resource "aws_iam_policy" "lambda_permissions" {
         Resource = "*"
       },
       {
+        Sid      = "StepFunctionsStart"
+        Effect   = "Allow"
+        Action   = ["states:StartExecution"]
+        Resource = aws_sfn_state_machine.ingestion_pipeline.arn
+      },
+      {
         Sid    = "CloudWatchLogs"
         Effect = "Allow"
         Action = [
