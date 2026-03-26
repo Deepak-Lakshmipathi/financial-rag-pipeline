@@ -17,6 +17,7 @@ resource "null_resource" "ingestion_layer_build" {
   }
 }
 
+# the archive file that has all the deps
 data "archive_file" "ingestion_layer" {
   type        = "zip"
   source_dir  = "${path.module}/../dist/layer"
@@ -25,6 +26,7 @@ data "archive_file" "ingestion_layer" {
   depends_on = [null_resource.ingestion_layer_build]
 }
 
+# lambda layer
 resource "aws_lambda_layer_version" "ingestion_deps" {
   layer_name          = "prog1-finrag-ingestion-deps"
   filename            = data.archive_file.ingestion_layer.output_path
@@ -32,6 +34,7 @@ resource "aws_lambda_layer_version" "ingestion_deps" {
   compatible_runtimes = ["python3.11"]
 }
 
+# gateway lambda - triggered by S3 file drop
 resource "aws_lambda_function" "ingestion" {
   function_name    = "prog1-finrag-ingestion-lambda"
   filename         = data.archive_file.ingestion_lambda.output_path
@@ -48,6 +51,8 @@ resource "aws_lambda_function" "ingestion" {
       LOG_LEVEL               = "INFO"
       POWERTOOLS_SERVICE_NAME = "ingestion"
       POWERTOOLS_LOG_LEVEL    = "INFO"
+      STATE_MACHINE_ARN       = aws_sfn_state_machine.ingestion_pipeline.arn
+      DOCS_BUCKET             = aws_s3_bucket.financial_docs.id
     }
   }
 
