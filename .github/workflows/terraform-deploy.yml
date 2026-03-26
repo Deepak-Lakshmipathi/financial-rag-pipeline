@@ -1,0 +1,127 @@
+name: Terraform Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  TF_VERSION: "1.9.0"
+  PYTHON_VERSION: "3.11"
+  AWS_REGION: "ap-south-1"
+
+jobs:
+  terraform:
+    name: Plan & Apply
+    runs-on: ubuntu-latest
+    # environment: production  # uncomment + configure in GitHub Settings -> Environments
+    #                          # to require manual approval before apply
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      # 1. Checkout
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Python (needed for null_resource pip install local-exec)
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # 3. AWS credentials (set these in repo Settings -> Secrets -> Actions)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 4. Terraform CLI
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # 5. Pre-build Lambda layer so archive_file data source can zip it.
+      #    null_resource local-exec only fires on apply, so we front-load this.
+      - name: Build Lambda layer
+        working-directory: .
+        run: |
+          pip install -r src/ingestion/requirements.txt \
+            -t dist/layer/python --quiet
+
+      # 6. Init (downloads providers, configures S3 backend)
+      - name: Terraform Init
+        run: terraform init
+
+      # 7. Format check (informational, does not block deploy)
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      # 8. Validate HCL syntax
+      - name: Terraform Validate
+        run: terraform validate
+
+      # 9. Plan - exit codes: 0=no changes, 1=error, 2=changes present
+      - name: Terraform Plan
+        id: plan
+        run: |
+          set +e
+          terraform plan \
+            -out=tfplan \
+            -detailed-exitcode \
+            -no-color \
+            2>&1 | tee plan.log
+          PLAN_EXIT=${PIPESTATUS[0]}
+          echo "exitcode=$PLAN_EXIT" >> $GITHUB_OUTPUT
+          exit 0
+
+      # 10. Fail fast on plan error
+      - name: Check Plan for Errors
+        if: steps.plan.outputs.exitcode == '1'
+        run: |
+          echo "::error::Terraform plan failed"
+          exit 1
+
+      # 11. Show full plan diff in the job summary
+      - name: Show Plan Changes
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          {
+            echo "## Terraform Plan - Changes Detected"
+            echo ""
+            echo '```diff'
+            terraform show -no-color tfplan
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
+
+      # 12. Short-circuit when infra is already up to date
+      - name: No Changes
+        if: steps.plan.outputs.exitcode == '0'
+        run: |
+          echo "Infrastructure is up to date - nothing to apply."
+          echo "## No Changes - Infrastructure already up to date." >> $GITHUB_STEP_SUMMARY
+
+      # 13. Apply (auto-approve = CI equivalent of typing "yes")
+      - name: Terraform Apply
+        if: steps.plan.outputs.exitcode == '2'
+        run: terraform apply -auto-approve tfplan
+
+      # 14. Post-deploy summary
+      - name: Deploy Summary
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          {
+            echo "## Deployment Complete"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Region | \`${{ env.AWS_REGION }}\` |"
+            echo "| Commit | \`${{ github.sha }}\` |"
+            echo "| Triggered by | @${{ github.actor }} |"
+            echo "| Time | $(date -u '+%Y-%m-%d %H:%M UTC') |"
+          } >> $GITHUB_STEP_SUMMARY

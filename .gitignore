@@ -1,7 +1,7 @@
 .terraform/
 *.tfstate
 *.tfstate.backup
-.terraform.lock.hcl
+# .terraform.lock.hcl is intentionally tracked - it pins provider versions for CI
 .env
 __pycache__/
 *.pyc
