@@ -31,17 +31,17 @@ resource "aws_iam_role_policy" "textract_sns_publish" {
   })
 }
 
-# Wire SNS → ingestion Lambda (textract_complete logic is now inline in the handler)
-resource "aws_sns_topic_subscription" "textract_to_lambda" {
+# Wire SNS → sfn_starter Lambda
+resource "aws_sns_topic_subscription" "textract_to_sfn_starter" {
   topic_arn = aws_sns_topic.textract_complete.arn
   protocol  = "lambda"
-  endpoint  = aws_lambda_function.ingestion.arn
+  endpoint  = aws_lambda_function.sfn_starter.arn
 }
 
-resource "aws_lambda_permission" "allow_sns_invoke" {
+resource "aws_lambda_permission" "allow_sns_invoke_sfn_starter" {
   statement_id  = "AllowSNSInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.ingestion.function_name
+  function_name = aws_lambda_function.sfn_starter.function_name
   principal     = "sns.amazonaws.com"
   source_arn    = aws_sns_topic.textract_complete.arn
 }

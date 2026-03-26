@@ -8,12 +8,22 @@ output "docs_bucket_arn" {
   value       = aws_s3_bucket.financial_docs.arn
 }
 
-output "lambda_execution_role_arn" {
-  description = "ARN of the Lambda execution role"
-  value       = aws_iam_role.lambda_execution.arn
+output "textract_submitter_lambda_arn" {
+  description = "ARN of the Textract submitter Lambda"
+  value       = aws_lambda_function.textract_submitter.arn
 }
 
-output "lambda_execution_role_name" {
-  description = "Name of the Lambda execution role"
-  value       = aws_iam_role.lambda_execution.name
+output "sfn_starter_lambda_arn" {
+  description = "ARN of the Step Functions starter Lambda"
+  value       = aws_lambda_function.sfn_starter.arn
+}
+
+output "pipeline_lambda_arn" {
+  description = "ARN of the pipeline processing Lambda"
+  value       = aws_lambda_function.pipeline.arn
+}
+
+output "state_machine_arn" {
+  description = "ARN of the financial RAG processing state machine"
+  value       = aws_sfn_state_machine.pipeline.arn
 }
