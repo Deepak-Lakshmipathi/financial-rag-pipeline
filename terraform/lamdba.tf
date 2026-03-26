@@ -53,6 +53,8 @@ resource "aws_lambda_function" "ingestion" {
       POWERTOOLS_LOG_LEVEL    = "INFO"
       STATE_MACHINE_ARN       = local.sfn_ingestion_arn
       DOCS_BUCKET             = aws_s3_bucket.financial_docs.id
+      TEXTRACT_SNS_ARN        = aws_sns_topic.textract_complete.arn
+      TEXTRACT_ROLE_ARN = aws_iam_role.textract_sns_role.arn
     }
   }
 
