@@ -51,7 +51,7 @@ resource "aws_lambda_function" "ingestion" {
       LOG_LEVEL               = "INFO"
       POWERTOOLS_SERVICE_NAME = "ingestion"
       POWERTOOLS_LOG_LEVEL    = "INFO"
-      STATE_MACHINE_ARN       = aws_sfn_state_machine.ingestion_pipeline.arn
+      STATE_MACHINE_ARN       = local.sfn_ingestion_arn
       DOCS_BUCKET             = aws_s3_bucket.financial_docs.id
     }
   }
