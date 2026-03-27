@@ -61,7 +61,7 @@ jobs:
 
       # 6. Init (downloads providers, configures S3 backend)
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -reconfigure
 
       # 7. Format check (informational, does not block deploy)
       - name: Terraform Format Check
