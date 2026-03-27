@@ -9,6 +9,7 @@ s3_client       = boto3.client("s3")
 DOCS_BUCKET     = os.environ["DOCS_BUCKET"]
 
 
+
 def _get_textract_results(payload: dict, _context: LambdaContext) -> dict:
     """Paginates through all Textract LINE blocks and returns the joined raw text."""
     job_id = payload["job_id"]
