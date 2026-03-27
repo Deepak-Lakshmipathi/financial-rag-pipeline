@@ -16,6 +16,12 @@ jobs:
     runs-on: ubuntu-latest
     # environment: production  # uncomment + configure in GitHub Settings -> Environments
     #                          # to require manual approval before apply
+
+    # Required for OIDC token issuance
+    permissions:
+      id-token: write
+      contents: read
+
     defaults:
       run:
         working-directory: terraform
@@ -31,12 +37,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      # 3. AWS credentials (set these in repo Settings -> Secrets -> Actions)
+      # 3. AWS credentials via OIDC (no static keys — add role ARN in repo Settings -> Secrets -> Actions)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       # 4. Terraform CLI
