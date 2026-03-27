@@ -52,10 +52,11 @@ jobs:
 
       # 5. Pre-build Lambda layer so archive_file data source can zip it.
       #    null_resource local-exec only fires on apply, so we front-load this.
+      #    All three Lambdas share the same deps — textract_submitter/requirements.txt is canonical.
       - name: Build Lambda layer
         working-directory: .
         run: |
-          pip install -r src/ingestion/requirements.txt \
+          pip install -r src/textract_submitter/requirements.txt \
             -t dist/layer/python --quiet
 
       # 6. Init (downloads providers, configures S3 backend)
